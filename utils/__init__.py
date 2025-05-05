@@ -1,8 +1,25 @@
 """
-Utility package for the Tensor Art Telegram Bot.
-Contains helper functions and utilities used across the project.
+Utility functions for the Tensor Art Telegram Bot.
 """
 
-from .helpers import validate_prompt, process_image, generate_request_id
+from .helpers import (
+    generate_request_id,
+    format_prompt,
+    resize_image,
+    get_popular_models,
+    process_image_bytes,
+    log_request,
+    log_response,
+    format_error
+)
 
-__all__ = ['validate_prompt', 'process_image', 'generate_request_id']
+__all__ = [
+    'generate_request_id',
+    'format_prompt',
+    'resize_image',
+    'get_popular_models',
+    'process_image_bytes',
+    'log_request',
+    'log_response',
+    'format_error'
+]
