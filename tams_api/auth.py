@@ -45,6 +45,7 @@ class SignatureGenerator:
     def _load_private_key_from_data(self, private_key_data):
         """Load private key from bytes data"""
         try:
+            # First try PKCS#1 format
             self.private_key = serialization.load_pem_private_key(
                 private_key_data,
                 password=None,
@@ -86,8 +87,10 @@ class SignatureGenerator:
         signature = self._sign_data(data_to_sign)
         
         # Return headers with signature
+        # The correct format is "Bearer {app_id}:{timestamp}:{signature}"
+        # This was previously "Sign {app_id}:{timestamp}:{signature}" which caused the error
         return {
-            'Authorization': f'Sign {self.app_id}:{timestamp}:{signature}',
+            'Authorization': f'Bearer {self.app_id}:{timestamp}:{signature}',
             'Content-Type': 'application/json'
         }
     
@@ -105,7 +108,8 @@ class SignatureGenerator:
                 
             content_md5 = hashlib.md5(request_body_str.encode('utf-8')).hexdigest()
         
-        # Format the string to sign
+        # Format the string to sign with line breaks between each component
+        # String should be: method + '\n' + path + '\n' + timestamp + '\n' + md5
         string_to_sign = f"{http_method}\n{url_path}\n{timestamp}\n{content_md5}"
         return string_to_sign.encode('utf-8')
     
