@@ -54,10 +54,12 @@ class TensorArtClient:
         full_url = f"{self.api_endpoint}{url_path}"
         
         # Convert data to JSON string if it's a dict
-        if data is not None and isinstance(data, dict):
-            data_str = json.dumps(data)
-        else:
-            data_str = data
+        data_str = None
+        if data is not None:
+            if isinstance(data, dict):
+                data_str = json.dumps(data)
+            else:
+                data_str = data
         
         # Generate signature and headers
         timestamp = int(time.time())
@@ -67,6 +69,15 @@ class TensorArtClient:
             request_body=data_str,
             timestamp=timestamp
         )
+        
+        # Add API key to headers
+        headers['X-API-Key'] = self.api_key
+        
+        # Debug log the request (masked for security)
+        logger.debug(f"Making {method} request to {full_url}")
+        logger.debug(f"Headers: {self._mask_headers(headers)}")
+        if data_str:
+            logger.debug(f"Request body: {data_str[:100]}{'...' if len(data_str) > 100 else ''}")
         
         try:
             async with aiohttp.ClientSession() as session:
@@ -82,6 +93,18 @@ class TensorArtClient:
             logger.error(f"Request error: {str(e)}")
             raise Exception(f"API request failed: {str(e)}")
     
+    def _mask_headers(self, headers):
+        """Mask sensitive information in headers for logging"""
+        masked_headers = headers.copy()
+        if 'Authorization' in masked_headers:
+            auth_parts = masked_headers['Authorization'].split(':')
+            if len(auth_parts) >= 3:
+                # Mask the signature part
+                masked_headers['Authorization'] = f"{':'.join(auth_parts[:-1])}:***"
+        if 'X-API-Key' in masked_headers:
+            masked_headers['X-API-Key'] = '***'
+        return masked_headers
+    
     async def _handle_response(self, response):
         """
         Handle the API response
@@ -93,7 +116,19 @@ class TensorArtClient:
             dict: Parsed response JSON
         """
         try:
-            response_json = await response.json()
+            # Log the response status
+            logger.debug(f"Response status: {response.status}")
+            
+            # Try to get the response body as text first
+            body_text = await response.text()
+            logger.debug(f"Response body: {body_text[:100]}{'...' if len(body_text) > 100 else ''}")
+            
+            # Try to parse as JSON
+            try:
+                response_json = json.loads(body_text)
+            except json.JSONDecodeError:
+                logger.error(f"Invalid JSON response: {body_text}")
+                raise Exception(f"Invalid API response (not JSON): Status {response.status}")
             
             # Check if the response indicates an error
             if response.status >= 400:
@@ -103,6 +138,7 @@ class TensorArtClient:
                 raise Exception(f"API error {response.status} ({error_code}): {error_message}")
             
             return response_json
+            
         except aiohttp.ContentTypeError:
             # If the response is not valid JSON
             text = await response.text()
@@ -163,6 +199,11 @@ class TensorArtClient:
             ]
         }
         
+        # Log the job creation details
+        logger.info(f"Creating text-to-image job with request ID: {request_id}")
+        logger.info(f"Using model: {model_id}")
+        logger.info(f"Prompt: {prompt}")
+        
         # Make the API request
         return await self._make_request('POST', '/v1/jobs', data=payload)
     
@@ -176,6 +217,7 @@ class TensorArtClient:
         Returns:
             dict: API response with job status information
         """
+        logger.info(f"Checking status of job: {job_id}")
         return await self._make_request('GET', f'/v1/jobs/{job_id}')
     
     async def list_models(self, page=1, page_size=10, model_type="CHECKPOINT"):
@@ -190,6 +232,7 @@ class TensorArtClient:
         Returns:
             dict: API response with model information
         """
+        logger.info(f"Listing models of type {model_type}, page {page}")
         return await self._make_request(
             'GET', 
             f'/v1/models?page={page}&pageSize={page_size}&modelType={model_type}'
@@ -205,4 +248,5 @@ class TensorArtClient:
         Returns:
             dict: API response with model details
         """
+        logger.info(f"Getting details for model: {model_id}")
         return await self._make_request('GET', f'/v1/models/{model_id}')
