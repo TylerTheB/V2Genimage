@@ -1,48 +1,45 @@
 # Environment variables
 .env
 
-# Python bytecode
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-
-# Virtual environments
-venv/
+*.so
+.Python
 env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
 ENV/
+env/
 
-# Private keys and credentials
-*.pem
-*.key
-private_key*
-*.der
-
-# Logs
-*.log
-
-# Temporary files
-tmp/
-temp/
-*.tmp
-
-# Telegram session files
-*.session
-*.session-journal
-
-# Generated image files
-images/
-
-# IDE specific files
-.vscode/
+# IDE
 .idea/
+.vscode/
 *.swp
 *.swo
 
-# OS specific files
-.DS_Store
-Thumbs.db
+# Logs
+logs/
+*.log
+
+# Temp files
+temp_private_key.pem
+
+# Heroku
+.env.local
