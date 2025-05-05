@@ -34,7 +34,7 @@ bot = TelegramClient(
 tams_client = TensorArtClient(
     app_id=config.TAMS_APP_ID,
     api_key=config.TAMS_API_KEY,
-    private_key_path=config.TAMS_PRIVATE_KEY_PATH,
+    private_key_data=base64.b64decode(config.TAMS_PRIVATE_KEY_BASE64) if config.TAMS_PRIVATE_KEY_BASE64 else None,
     api_endpoint=config.TAMS_API_ENDPOINT
 )
 
