@@ -60,10 +60,12 @@ class TensorArtClient:
         # Convert data to JSON string if it's a dict
         body_data = None
         if data is not None:
-            # Important: Sort keys for consistent signatures
+            # Important: Create a consistent JSON representation
+            # Sort keys to ensure consistent ordering
             body_data = json.dumps(data, separators=(',', ':'), sort_keys=True)
         
         # Generate signature and headers
+        # We need to pass the exact JSON string that will be sent
         headers = self.signature_generator.generate_signature(
             http_method=method,
             url_path=url_path,
@@ -74,7 +76,7 @@ class TensorArtClient:
         logger.debug(f"Making {method} request to {full_url}")
         logger.debug(f"Headers: {json.dumps(self._mask_headers(headers), indent=2)}")
         if body_data:
-            logger.debug(f"Request body: {body_data[:200]}{'...' if len(body_data) > 200 else ''}")
+            logger.debug(f"Request body: {body_data}")
         
         try:
             timeout = aiohttp.ClientTimeout(total=120)
@@ -105,7 +107,9 @@ class TensorArtClient:
                 parts = auth.split(',')
                 for i, part in enumerate(parts):
                     if part.strip().startswith('signature='):
-                        parts[i] = 'signature=***'
+                        # Show only first 10 chars of signature
+                        sig_value = part.split('=', 1)[1]
+                        parts[i] = f'signature={sig_value[:10]}...'
                 masked_headers['Authorization'] = ','.join(parts)
         return masked_headers
     
@@ -126,7 +130,12 @@ class TensorArtClient:
             
             # Read the response body
             body_text = await response.text()
-            logger.debug(f"Response body: {body_text[:500]}{'...' if len(body_text) > 500 else ''}")
+            
+            # For debugging 401 errors, log more of the response
+            if response.status == 401:
+                logger.error(f"401 Response body: {body_text}")
+            else:
+                logger.debug(f"Response body: {body_text[:500]}{'...' if len(body_text) > 500 else ''}")
             
             # Try to parse as JSON
             try:
@@ -139,9 +148,18 @@ class TensorArtClient:
             if response.status >= 400:
                 error_code = response_json.get('code', 'UNKNOWN')
                 error_message = response_json.get('message', response_json.get('msg', 'Unknown error'))
+                tips = response_json.get('tips', '')
+                
                 logger.error(f"API error {response.status} ({error_code}): {error_message}")
+                if tips:
+                    logger.error(f"Tips from server: {tips}")
                 logger.error(f"Full error response: {json.dumps(response_json, indent=2)}")
-                raise Exception(f"API error {response.status} ({error_code}): {error_message}")
+                
+                # Include tips in the error message if available
+                error_msg = f"API error {response.status} ({error_code}): {error_message}"
+                if tips:
+                    error_msg += f"\nServer tips: {tips}"
+                raise Exception(error_msg)
             
             # Check for errors in successful responses
             if 'code' in response_json and response_json['code'] != 0:
@@ -168,7 +186,7 @@ class TensorArtClient:
         if not model_id:
             model_id = "600423083519508503"  # Default model
         
-        # Create the job payload
+        # Create the job payload in the exact format TAMS expects
         payload = {
             "requestId": request_id,
             "stages": [
@@ -185,7 +203,7 @@ class TensorArtClient:
                         "width": width,
                         "height": height,
                         "prompts": [{"text": prompt}],
-                        "negativePrompts": [{"text": negative_prompt}] if negative_prompt else [],
+                        "negativePrompts": [],  # Empty array as shown in the error message
                         "sdModel": model_id,
                         "sdVae": "Automatic",
                         "sampler": sampler,
