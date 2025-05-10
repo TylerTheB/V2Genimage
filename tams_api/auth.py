@@ -55,7 +55,7 @@ class SignatureGenerator:
             logger.error(f"Failed to load private key: {str(e)}")
             raise ValueError(f"Failed to load private key: {str(e)}")
     
-    def generate_signature(self, http_method, url_path, request_body=None, timestamp=None):
+    def generate_signature(self, http_method, url_path, request_body=None, timestamp=None, nonce_str=None):
         """
         Generate a signature for Tensor Art API request
         
@@ -64,6 +64,7 @@ class SignatureGenerator:
             url_path (str): API endpoint path
             request_body (str, optional): Request body as string
             timestamp (int, optional): Timestamp to use for signature (default: current time)
+            nonce_str (str, optional): Nonce string (default: generate new UUID)
             
         Returns:
             dict: Headers with signature information
@@ -72,13 +73,13 @@ class SignatureGenerator:
         if timestamp is None:
             timestamp = int(time.time())
         
-        # Generate a unique nonce string for this request
-        nonce_str = str(uuid.uuid4())
+        # Generate a unique nonce string if not provided
+        if nonce_str is None:
+            nonce_str = str(uuid.uuid4())
         
         # Create the data to sign
         data_to_sign = self._create_data_to_sign(
-            http_method, url_path, request_body, 
-            self.app_id, nonce_str, timestamp
+            http_method, url_path, request_body, timestamp, nonce_str
         )
         
         # Sign the data
@@ -87,32 +88,22 @@ class SignatureGenerator:
         # Create authorization header - TAMS specific format
         auth_header = f"TAMS-SHA256-RSA app_id={self.app_id},nonce_str={nonce_str},timestamp={timestamp},signature={signature}"
         
+        logger.debug(f"Generated auth header: {auth_header[:100]}...")
+        
         return {
             'Authorization': auth_header,
             'Content-Type': 'application/json'
         }
     
-    def _create_data_to_sign(self, http_method, url_path, request_body, app_id, nonce_str, timestamp):
+    def _create_data_to_sign(self, http_method, url_path, request_body, timestamp, nonce_str):
         """Create the string to be signed according to TAMS spec"""
-        # Components of the signature
-        components = []
-        
-        # Add HTTP method
-        components.append(http_method.upper())
-        
-        # Add URL path
-        if not url_path.startswith('/'):
-            url_path = '/' + url_path
-        components.append(url_path)
-        
-        # Add app_id
-        components.append(app_id)
-        
-        # Add nonce_str
-        components.append(nonce_str)
-        
-        # Add timestamp
-        components.append(str(timestamp))
+        # Build the string to sign according to the error message format
+        components = [
+            http_method.upper(),
+            url_path,
+            str(timestamp),
+            nonce_str
+        ]
         
         # Add request body if present
         if request_body:
@@ -121,7 +112,7 @@ class SignatureGenerator:
         # Join all components with newlines
         string_to_sign = '\n'.join(components)
         
-        logger.debug(f"String to sign: {repr(string_to_sign)}")
+        logger.debug(f"String to sign:\n{string_to_sign}")
         
         return string_to_sign.encode('utf-8')
     
