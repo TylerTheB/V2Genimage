@@ -60,7 +60,7 @@ class TensorArtClient:
         # Convert data to JSON string if it's a dict
         body_data = None
         if data is not None:
-            # Important: Sort keys for consistent signatures
+            # TAMS likely expects sorted keys for consistent signatures
             body_data = json.dumps(data, separators=(',', ':'), sort_keys=True)
         
         # Generate signature and headers
@@ -72,38 +72,30 @@ class TensorArtClient:
         
         # Debug log the request
         logger.debug(f"Making {method} request to {full_url}")
-        logger.debug(f"Headers: {self._mask_headers(headers)}")
+        logger.debug(f"Headers: {json.dumps(headers, indent=2)}")
         if body_data:
-            logger.debug(f"Request body: {body_data[:100]}{'...' if len(body_data) > 100 else ''}")
+            logger.debug(f"Request body: {body_data[:200]}{'...' if len(body_data) > 200 else ''}")
         
         try:
             timeout = aiohttp.ClientTimeout(total=120)
             async with aiohttp.ClientSession(timeout=timeout) as session:
+                request_kwargs = {
+                    'headers': headers,
+                    'ssl': True
+                }
+                
                 if method.upper() == 'GET':
-                    async with session.get(full_url, headers=headers) as response:
+                    async with session.get(full_url, **request_kwargs) as response:
                         return await self._handle_response(response)
                 elif method.upper() == 'POST':
-                    async with session.post(
-                        full_url, 
-                        headers=headers, 
-                        data=body_data  # Send as raw JSON string
-                    ) as response:
+                    request_kwargs['data'] = body_data
+                    async with session.post(full_url, **request_kwargs) as response:
                         return await self._handle_response(response)
                 else:
                     raise ValueError(f"Unsupported HTTP method: {method}")
         except aiohttp.ClientError as e:
             logger.error(f"Request error: {str(e)}")
             raise Exception(f"API request failed: {str(e)}")
-    
-    def _mask_headers(self, headers):
-        """Mask sensitive information in headers for logging"""
-        masked_headers = headers.copy()
-        if 'Authorization' in masked_headers:
-            # Show only the first part of the authorization header
-            auth_parts = masked_headers['Authorization'].split(':')
-            if len(auth_parts) >= 1:
-                masked_headers['Authorization'] = f"{auth_parts[0]}:***"
-        return masked_headers
     
     async def _handle_response(self, response):
         """
