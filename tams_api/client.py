@@ -60,10 +60,8 @@ class TensorArtClient:
         # Convert data to JSON string if it's a dict
         body_data = None
         if data is not None:
-            if isinstance(data, dict):
-                body_data = json.dumps(data, separators=(',', ':'), sort_keys=True)
-            else:
-                body_data = data
+            # Important: Sort keys for consistent signatures
+            body_data = json.dumps(data, separators=(',', ':'), sort_keys=True)
         
         # Generate signature and headers
         headers = self.signature_generator.generate_signature(
@@ -72,18 +70,14 @@ class TensorArtClient:
             request_body=body_data
         )
         
-        # Add additional headers
-        headers['x-tams-app-id'] = self.app_id
-        headers['x-tams-api-key'] = self.api_key
-        
-        # Debug log the request (masked for security)
+        # Debug log the request
         logger.debug(f"Making {method} request to {full_url}")
         logger.debug(f"Headers: {self._mask_headers(headers)}")
         if body_data:
             logger.debug(f"Request body: {body_data[:100]}{'...' if len(body_data) > 100 else ''}")
         
         try:
-            timeout = aiohttp.ClientTimeout(total=120)  # 2 minute timeout
+            timeout = aiohttp.ClientTimeout(total=120)
             async with aiohttp.ClientSession(timeout=timeout) as session:
                 if method.upper() == 'GET':
                     async with session.get(full_url, headers=headers) as response:
@@ -92,8 +86,7 @@ class TensorArtClient:
                     async with session.post(
                         full_url, 
                         headers=headers, 
-                        data=body_data,
-                        ssl=False  # Disable SSL verification for debugging
+                        data=body_data  # Send as raw JSON string
                     ) as response:
                         return await self._handle_response(response)
                 else:
@@ -106,9 +99,10 @@ class TensorArtClient:
         """Mask sensitive information in headers for logging"""
         masked_headers = headers.copy()
         if 'Authorization' in masked_headers:
-            masked_headers['Authorization'] = '***'
-        if 'x-tams-api-key' in masked_headers:
-            masked_headers['x-tams-api-key'] = '***'
+            # Show only the first part of the authorization header
+            auth_parts = masked_headers['Authorization'].split(':')
+            if len(auth_parts) >= 1:
+                masked_headers['Authorization'] = f"{auth_parts[0]}:***"
         return masked_headers
     
     async def _handle_response(self, response):
@@ -122,12 +116,13 @@ class TensorArtClient:
             dict: Parsed response JSON
         """
         try:
-            # Log the response status
+            # Log the response status and headers
             logger.debug(f"Response status: {response.status}")
+            logger.debug(f"Response headers: {dict(response.headers)}")
             
             # Read the response body
             body_text = await response.text()
-            logger.debug(f"Response body: {body_text[:200]}{'...' if len(body_text) > 200 else ''}")
+            logger.debug(f"Response body: {body_text[:500]}{'...' if len(body_text) > 500 else ''}")
             
             # Try to parse as JSON
             try:
@@ -136,15 +131,15 @@ class TensorArtClient:
                 logger.error(f"Invalid JSON response: {body_text}")
                 raise Exception(f"Invalid API response (not JSON): Status {response.status}, Body: {body_text}")
             
-            # Check if the response indicates an error
+            # Check response status
             if response.status >= 400:
                 error_code = response_json.get('code', 'UNKNOWN')
                 error_message = response_json.get('message', response_json.get('msg', 'Unknown error'))
                 logger.error(f"API error {response.status} ({error_code}): {error_message}")
-                logger.error(f"Full response: {response_json}")
+                logger.error(f"Full error response: {json.dumps(response_json, indent=2)}")
                 raise Exception(f"API error {response.status} ({error_code}): {error_message}")
             
-            # For successful responses, check if there's still an error in the body
+            # Check for errors in successful responses
             if 'code' in response_json and response_json['code'] != 0:
                 error_code = response_json.get('code', 'UNKNOWN')
                 error_message = response_json.get('message', response_json.get('msg', 'Unknown error'))
@@ -153,39 +148,23 @@ class TensorArtClient:
             
             return response_json
             
-        except aiohttp.ContentTypeError:
-            # If the response is not valid JSON
-            text = await response.text()
-            logger.error(f"Invalid JSON response: {text}")
-            raise Exception(f"Invalid API response (not JSON): Status {response.status}")
+        except Exception as e:
+            logger.error(f"Error handling response: {str(e)}")
+            raise
     
     async def create_text_to_image_job(self, request_id=None, prompt="", model_id=None, 
                                        width=512, height=512, steps=25, sampler="DPM++ 2M Karras",
                                        negative_prompt=""):
         """
         Create a text-to-image job
-        
-        Args:
-            request_id (str, optional): Unique request ID (generated if not provided)
-            prompt (str): Text prompt for image generation
-            model_id (str): ID of the model to use
-            width (int): Width of the generated image
-            height (int): Height of the generated image
-            steps (int): Number of denoising steps
-            sampler (str): Sampling method
-            negative_prompt (str): Negative prompt for image generation
-            
-        Returns:
-            dict: API response with job information
         """
         if not request_id:
             request_id = self._generate_request_id()
         
         if not model_id:
-            # Use a default model ID if none provided
-            model_id = "600423083519508503"
+            model_id = "600423083519508503"  # Default model
         
-        # Create the job payload using simpler format
+        # Create the job payload
         payload = {
             "requestId": request_id,
             "stages": [
@@ -226,12 +205,6 @@ class TensorArtClient:
     async def get_job_status(self, job_id):
         """
         Get the status of a job
-        
-        Args:
-            job_id (str): The job ID
-            
-        Returns:
-            dict: API response with job status information
         """
         logger.info(f"Checking status of job: {job_id}")
         response = await self._make_request('GET', f'/v1/jobs/{job_id}')
