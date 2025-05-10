@@ -53,11 +53,11 @@ class TensorArtClient:
         """
         full_url = f"{self.api_endpoint}{url_path}"
         
-        # Convert data to JSON string if it's a dict
+        # Convert data to JSON string if it's a dict, sorting keys for consistency
         data_str = None
         if data is not None:
             if isinstance(data, dict):
-                data_str = json.dumps(data)
+                data_str = json.dumps(data, separators=(',', ':'), sort_keys=True)
             else:
                 data_str = data
         
@@ -70,7 +70,7 @@ class TensorArtClient:
             timestamp=timestamp
         )
         
-        # Add API key to headers
+        # Add API key to headers - using X-API-Key header
         headers['X-API-Key'] = self.api_key
         
         # Debug log the request (masked for security)
@@ -167,7 +167,7 @@ class TensorArtClient:
         if not model_id:
             raise ValueError("Model ID is required")
         
-        # Create the job payload
+        # Create the job payload - using correct TAMS API format
         payload = {
             "requestId": request_id,
             "stages": [
