@@ -4,6 +4,7 @@ import json
 import time
 import logging
 import hashlib
+import uuid
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
@@ -71,48 +72,61 @@ class SignatureGenerator:
         if timestamp is None:
             timestamp = int(time.time())
         
+        # Generate a unique nonce string for this request
+        nonce_str = str(uuid.uuid4())
+        
         # Create the data to sign
-        data_to_sign, content_hash = self._create_data_to_sign(http_method, url_path, request_body, timestamp)
+        data_to_sign = self._create_data_to_sign(
+            http_method, url_path, request_body, 
+            self.app_id, nonce_str, timestamp
+        )
         
         # Sign the data
         signature = self._sign_data(data_to_sign)
         
-        # Create headers following TAMS format
-        headers = {
-            'Date': time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(timestamp)),
-            'Content-Type': 'application/json',
-            'Authorization': f'HMAC-SHA256 AppId={self.app_id},Timestamp={timestamp},Signature={signature}'
+        # Create authorization header - TAMS specific format
+        auth_header = f"TAMS-SHA256-RSA app_id={self.app_id},nonce_str={nonce_str},timestamp={timestamp},signature={signature}"
+        
+        return {
+            'Authorization': auth_header,
+            'Content-Type': 'application/json'
         }
-        
-        # Add content hash if we have a body
-        if content_hash:
-            headers['x-tams-content-sha256'] = content_hash
-        
-        return headers
     
-    def _create_data_to_sign(self, http_method, url_path, request_body, timestamp):
+    def _create_data_to_sign(self, http_method, url_path, request_body, app_id, nonce_str, timestamp):
         """Create the string to be signed according to TAMS spec"""
-        http_method = http_method.upper()
+        # Components of the signature
+        components = []
         
-        # Ensure the URL path starts with /
+        # Add HTTP method
+        components.append(http_method.upper())
+        
+        # Add URL path
         if not url_path.startswith('/'):
             url_path = '/' + url_path
-            
-        # Calculate content hash if there's a body
-        content_hash = ''
-        if request_body:
-            content_hash = hashlib.sha256(request_body.encode('utf-8')).hexdigest()
+        components.append(url_path)
         
-        # TAMS expects this specific format for string to sign:
-        # HttpMethod + \n + UrlPath + \n + Timestamp + \n + ContentHash
-        string_to_sign = f"{http_method}\n{url_path}\n{timestamp}\n{content_hash}"
+        # Add app_id
+        components.append(app_id)
+        
+        # Add nonce_str
+        components.append(nonce_str)
+        
+        # Add timestamp
+        components.append(str(timestamp))
+        
+        # Add request body if present
+        if request_body:
+            components.append(request_body)
+        
+        # Join all components with newlines
+        string_to_sign = '\n'.join(components)
         
         logger.debug(f"String to sign: {repr(string_to_sign)}")
         
-        return string_to_sign.encode('utf-8'), content_hash
+        return string_to_sign.encode('utf-8')
     
     def _sign_data(self, data):
-        """Sign the data with the private key"""
+        """Sign the data with the private key using RSA SHA-256"""
         try:
             # Sign the data using RSA with SHA-256
             signature = self.private_key.sign(
@@ -123,7 +137,7 @@ class SignatureGenerator:
             
             # Return base64 encoded signature
             base64_signature = base64.b64encode(signature).decode('utf-8')
-            logger.debug(f"Generated signature: {base64_signature[:30]}...")
+            logger.debug(f"Generated signature (first 20 chars): {base64_signature[:20]}...")
             return base64_signature
         except Exception as e:
             logger.error(f"Failed to sign data: {str(e)}")
