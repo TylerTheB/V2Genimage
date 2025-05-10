@@ -87,11 +87,9 @@ class SignatureGenerator:
         signature = self._sign_data(data_to_sign)
         
         # Return headers with signature
-        # IMPORTANT: The Authorization header should just be the signature, not in the format "Sign appid:timestamp:signature"
+        # According to the TAMS docs, the signature goes directly in the Authorization header
         return {
             'Authorization': signature,
-            'X-API-AppId': self.app_id,
-            'X-API-Timestamp': str(timestamp),
             'Content-Type': 'application/json'
         }
     
@@ -112,6 +110,7 @@ class SignatureGenerator:
         # Format the string to sign with line breaks between each component
         # String should be: method + '\n' + path + '\n' + timestamp + '\n' + md5
         string_to_sign = f"{http_method}\n{url_path}\n{timestamp}\n{content_md5}"
+        logger.debug(f"String to sign: {string_to_sign}")
         return string_to_sign.encode('utf-8')
     
     def _sign_data(self, data):
