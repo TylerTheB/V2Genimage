@@ -87,10 +87,9 @@ class SignatureGenerator:
         signature = self._sign_data(data_to_sign)
         
         # Return headers with signature
-        # The correct format is "Bearer {app_id}:{timestamp}:{signature}"
-        # This was previously "Sign {app_id}:{timestamp}:{signature}" which caused the error
+        # The correct format is "Sign {app_id}:{timestamp}:{signature}"
         return {
-            'Authorization': f'Bearer {self.app_id}:{timestamp}:{signature}',
+            'Authorization': f'Sign {self.app_id}:{timestamp}:{signature}',
             'Content-Type': 'application/json'
         }
     
