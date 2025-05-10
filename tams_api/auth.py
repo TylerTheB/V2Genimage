@@ -87,9 +87,9 @@ class SignatureGenerator:
         signature = self._sign_data(data_to_sign)
         
         # Return headers with signature
-        # According to the TAMS docs, the signature goes directly in the Authorization header
+        # FIXED: Use Bearer format for the Authorization header
         return {
-            'Authorization': signature,
+            'Authorization': f'Bearer {signature}',
             'Content-Type': 'application/json'
         }
     
