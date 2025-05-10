@@ -72,18 +72,23 @@ class SignatureGenerator:
             timestamp = int(time.time())
         
         # Create the data to sign
-        data_to_sign = self._create_data_to_sign(http_method, url_path, request_body, timestamp)
+        data_to_sign, content_hash = self._create_data_to_sign(http_method, url_path, request_body, timestamp)
         
         # Sign the data
         signature = self._sign_data(data_to_sign)
         
-        # Create authorization header - TAMS specific format
-        auth_header = f"{self.app_id}:{signature}:{timestamp}"
-        
-        return {
-            'Authorization': auth_header,
-            'Content-Type': 'application/json'
+        # Create headers following TAMS format
+        headers = {
+            'Date': time.strftime('%a, %d %b %Y %H:%M:%S GMT', time.gmtime(timestamp)),
+            'Content-Type': 'application/json',
+            'Authorization': f'HMAC-SHA256 AppId={self.app_id},Timestamp={timestamp},Signature={signature}'
         }
+        
+        # Add content hash if we have a body
+        if content_hash:
+            headers['x-tams-content-sha256'] = content_hash
+        
+        return headers
     
     def _create_data_to_sign(self, http_method, url_path, request_body, timestamp):
         """Create the string to be signed according to TAMS spec"""
@@ -92,20 +97,19 @@ class SignatureGenerator:
         # Ensure the URL path starts with /
         if not url_path.startswith('/'):
             url_path = '/' + url_path
-        
-        # Handle request body - TAMS requires MD5 hash of the body
-        content_md5 = ''
+            
+        # Calculate content hash if there's a body
+        content_hash = ''
         if request_body:
-            # TAMS expects the raw string, not dict
-            content_md5 = hashlib.md5(request_body.encode('utf-8')).hexdigest()
+            content_hash = hashlib.sha256(request_body.encode('utf-8')).hexdigest()
         
-        # Format the string to sign: HTTP_METHOD + PATH + TIMESTAMP + CONTENT_MD5
-        string_to_sign = f"{http_method}{url_path}{timestamp}{content_md5}"
+        # TAMS expects this specific format for string to sign:
+        # HttpMethod + \n + UrlPath + \n + Timestamp + \n + ContentHash
+        string_to_sign = f"{http_method}\n{url_path}\n{timestamp}\n{content_hash}"
         
-        logger.debug(f"String to sign: {string_to_sign}")
-        logger.debug(f"Components: method={http_method}, path={url_path}, timestamp={timestamp}, md5={content_md5}")
+        logger.debug(f"String to sign: {repr(string_to_sign)}")
         
-        return string_to_sign.encode('utf-8')
+        return string_to_sign.encode('utf-8'), content_hash
     
     def _sign_data(self, data):
         """Sign the data with the private key"""
@@ -119,7 +123,7 @@ class SignatureGenerator:
             
             # Return base64 encoded signature
             base64_signature = base64.b64encode(signature).decode('utf-8')
-            logger.debug(f"Generated signature (first 20 chars): {base64_signature[:20]}...")
+            logger.debug(f"Generated signature: {base64_signature[:30]}...")
             return base64_signature
         except Exception as e:
             logger.error(f"Failed to sign data: {str(e)}")
