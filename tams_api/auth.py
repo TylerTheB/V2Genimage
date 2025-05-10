@@ -4,9 +4,8 @@ import json
 import time
 import logging
 import hashlib
-import datetime
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa, utils
+from cryptography.hazmat.primitives.asymmetric import padding
 from cryptography.hazmat.backends import default_backend
 
 logger = logging.getLogger(__name__)
@@ -45,23 +44,15 @@ class SignatureGenerator:
     def _load_private_key_from_data(self, private_key_data):
         """Load private key from bytes data"""
         try:
-            # First try PKCS#1 format
+            # First try PKCS#1 format with no password
             self.private_key = serialization.load_pem_private_key(
                 private_key_data,
                 password=None,
                 backend=default_backend()
             )
         except Exception as e:
-            # Try PKCS#8 format if the default PKCS#1 fails
-            try:
-                self.private_key = serialization.load_der_private_key(
-                    private_key_data,
-                    password=None,
-                    backend=default_backend()
-                )
-            except Exception as nested_e:
-                logger.error(f"Failed to load private key: {str(e)}, {str(nested_e)}")
-                raise ValueError(f"Failed to load private key: {str(e)}, {str(nested_e)}")
+            logger.error(f"Failed to load private key: {str(e)}")
+            raise ValueError(f"Failed to load private key: {str(e)}")
     
     def generate_signature(self, http_method, url_path, request_body=None, timestamp=None):
         """
@@ -86,35 +77,38 @@ class SignatureGenerator:
         # Sign the data
         signature = self._sign_data(data_to_sign)
         
-        # Return headers with signature - try different Authorization formats
-        # Based on TAMS documentation, the signature goes in the Authorization header
-        # Try the format: TAMS appId:signature
-        auth_string = f"TAMS {self.app_id}:{signature}"
+        # Format the authorization header according to TAMS specification
+        auth_string = f"{self.app_id}.{timestamp}.{signature}"
         
         return {
             'Authorization': auth_string,
-            'Content-Type': 'application/json',
-            'X-TAMS-Timestamp': str(timestamp)  # Add timestamp header
+            'Content-Type': 'application/json'
         }
     
     def _create_data_to_sign(self, http_method, url_path, request_body, timestamp):
         """Create the string to be signed"""
         http_method = http_method.upper()
         
+        # Ensure the URL path starts with /
+        if not url_path.startswith('/'):
+            url_path = '/' + url_path
+        
         # Handle request body
         content_md5 = ''
         if request_body is not None:
             if isinstance(request_body, dict):
+                # Sort keys for consistency
                 request_body_str = json.dumps(request_body, separators=(',', ':'), sort_keys=True)
             else:
                 request_body_str = request_body
                 
+            # Calculate MD5 of the request body
             content_md5 = hashlib.md5(request_body_str.encode('utf-8')).hexdigest()
         
-        # Format the string to sign with line breaks between each component
-        # String should be: method + '\n' + path + '\n' + timestamp + '\n' + md5
+        # Format the string to sign
+        # The format is: METHOD\nPATH\nTIMESTAMP\nMD5
         string_to_sign = f"{http_method}\n{url_path}\n{timestamp}\n{content_md5}"
-        logger.debug(f"String to sign: {string_to_sign}")
+        logger.debug(f"String to sign: {repr(string_to_sign)}")
         return string_to_sign.encode('utf-8')
     
     def _sign_data(self, data):
@@ -123,12 +117,14 @@ class SignatureGenerator:
             # Sign the data using RSA with SHA-256
             signature = self.private_key.sign(
                 data,
-                padding.PKCS1v15(),
+                padding.PKCS1v15(),  # Use PKCS1v15 padding as specified by TAMS
                 hashes.SHA256()
             )
             
             # Return base64 encoded signature
-            return base64.b64encode(signature).decode('utf-8')
+            base64_signature = base64.b64encode(signature).decode('utf-8')
+            logger.debug(f"Generated signature: {base64_signature[:20]}...")
+            return base64_signature
         except Exception as e:
             logger.error(f"Failed to sign data: {str(e)}")
             raise ValueError(f"Failed to sign data: {str(e)}")
