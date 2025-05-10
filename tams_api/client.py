@@ -72,8 +72,9 @@ class TensorArtClient:
             request_body=body_data
         )
         
-        # Add the API key as a separate header
-        headers['X-TAMS-APP-ID'] = self.app_id
+        # Add additional headers
+        headers['x-tams-app-id'] = self.app_id
+        headers['x-tams-api-key'] = self.api_key
         
         # Debug log the request (masked for security)
         logger.debug(f"Making {method} request to {full_url}")
@@ -88,7 +89,6 @@ class TensorArtClient:
                     async with session.get(full_url, headers=headers) as response:
                         return await self._handle_response(response)
                 elif method.upper() == 'POST':
-                    # Send as raw JSON string with correct content type
                     async with session.post(
                         full_url, 
                         headers=headers, 
@@ -106,9 +106,9 @@ class TensorArtClient:
         """Mask sensitive information in headers for logging"""
         masked_headers = headers.copy()
         if 'Authorization' in masked_headers:
-            auth_parts = masked_headers['Authorization'].split('.')
-            if len(auth_parts) >= 3:
-                masked_headers['Authorization'] = f"{auth_parts[0]}.{auth_parts[1][:5]}***"
+            masked_headers['Authorization'] = '***'
+        if 'x-tams-api-key' in masked_headers:
+            masked_headers['x-tams-api-key'] = '***'
         return masked_headers
     
     async def _handle_response(self, response):
@@ -141,6 +141,7 @@ class TensorArtClient:
                 error_code = response_json.get('code', 'UNKNOWN')
                 error_message = response_json.get('message', response_json.get('msg', 'Unknown error'))
                 logger.error(f"API error {response.status} ({error_code}): {error_message}")
+                logger.error(f"Full response: {response_json}")
                 raise Exception(f"API error {response.status} ({error_code}): {error_message}")
             
             # For successful responses, check if there's still an error in the body
@@ -184,23 +185,33 @@ class TensorArtClient:
             # Use a default model ID if none provided
             model_id = "600423083519508503"
         
-        # Create the job payload according to TAMS API format
+        # Create the job payload using simpler format
         payload = {
-            "model": model_id,
-            "prompt": prompt,
-            "negativePrompt": negative_prompt,
             "requestId": request_id,
-            "initImageResourceId": "",
-            "samples": 1,
-            "params": {
-                "width": width,
-                "height": height,
-                "steps": steps,
-                "sampler": sampler,
-                "cfgScale": 7.0,
-                "clipSkip": 2,
-                "denoisingStrength": 0.7
-            }
+            "stages": [
+                {
+                    "type": "INPUT_INITIALIZE",
+                    "inputInitialize": {
+                        "seed": -1,
+                        "count": 1
+                    }
+                },
+                {
+                    "type": "DIFFUSION",
+                    "diffusion": {
+                        "width": width,
+                        "height": height,
+                        "prompts": [{"text": prompt}],
+                        "negativePrompts": [{"text": negative_prompt}] if negative_prompt else [],
+                        "sdModel": model_id,
+                        "sdVae": "Automatic",
+                        "sampler": sampler,
+                        "steps": steps,
+                        "cfgScale": 7.0,
+                        "clipSkip": 2
+                    }
+                }
+            ]
         }
         
         # Log the job creation details
@@ -209,8 +220,8 @@ class TensorArtClient:
         logger.info(f"Prompt: {prompt}")
         
         # Make the API request
-        response = await self._make_request('POST', '/v1/createTask', data=payload)
-        return response.get('data', response)
+        response = await self._make_request('POST', '/v1/jobs', data=payload)
+        return response
     
     async def get_job_status(self, job_id):
         """
@@ -223,22 +234,5 @@ class TensorArtClient:
             dict: API response with job status information
         """
         logger.info(f"Checking status of job: {job_id}")
-        response = await self._make_request('GET', f'/v1/taskDetail?taskId={job_id}')
-        return response.get('data', response)
-    
-    async def list_models(self, page=1, page_size=10, model_type="CHECKPOINT"):
-        """
-        List available models
-        
-        Args:
-            page (int): Page number
-            page_size (int): Number of items per page
-            model_type (str): Type of model to list
-            
-        Returns:
-            dict: API response with model information
-        """
-        logger.info(f"Listing models of type {model_type}, page {page}")
-        params = f"page={page}&pageSize={page_size}&modelType={model_type}"
-        response = await self._make_request('GET', f'/v1/modelList?{params}')
-        return response.get('data', response)
+        response = await self._make_request('GET', f'/v1/jobs/{job_id}')
+        return response
