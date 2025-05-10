@@ -97,10 +97,7 @@ class TensorArtClient:
         """Mask sensitive information in headers for logging"""
         masked_headers = headers.copy()
         if 'Authorization' in masked_headers:
-            auth_parts = masked_headers['Authorization'].split(':')
-            if len(auth_parts) >= 3:
-                # Mask the signature part
-                masked_headers['Authorization'] = f"{':'.join(auth_parts[:-1])}:***"
+            masked_headers['Authorization'] = '***'
         if 'X-API-Key' in masked_headers:
             masked_headers['X-API-Key'] = '***'
         return masked_headers
