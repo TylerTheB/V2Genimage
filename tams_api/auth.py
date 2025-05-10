@@ -45,11 +45,39 @@ class SignatureGenerator:
     def _load_private_key_from_data(self, private_key_data):
         """Load private key from bytes data"""
         try:
-            self.private_key = serialization.load_pem_private_key(
-                private_key_data,
-                password=None,
-                backend=default_backend()
-            )
+            # Try to determine if this is PKCS#1 or PKCS#8 format
+            key_str = private_key_data.decode('utf-8')
+            
+            # Check if it's PKCS#8 format and convert to PKCS#1 if needed
+            if 'BEGIN PRIVATE KEY' in key_str:
+                logger.debug("Detected PKCS#8 format, converting to PKCS#1 format")
+                # Load as PKCS#8
+                private_key = serialization.load_pem_private_key(
+                    private_key_data,
+                    password=None,
+                    backend=default_backend()
+                )
+                # Convert to PKCS#1 format for compatibility
+                private_key_pkcs1 = private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption()
+                )
+                # Reload as PKCS#1
+                self.private_key = serialization.load_pem_private_key(
+                    private_key_pkcs1,
+                    password=None,
+                    backend=default_backend()
+                )
+            else:
+                # Already in PKCS#1 format or handle normally
+                logger.debug("Using private key as-is")
+                self.private_key = serialization.load_pem_private_key(
+                    private_key_data,
+                    password=None,
+                    backend=default_backend()
+                )
+            
             logger.debug("Successfully loaded private key")
         except Exception as e:
             logger.error(f"Failed to load private key: {str(e)}")
@@ -89,6 +117,7 @@ class SignatureGenerator:
         auth_header = f"TAMS-SHA256-RSA app_id={self.app_id},nonce_str={nonce_str},timestamp={timestamp},signature={signature}"
         
         logger.debug(f"Generated auth header: {auth_header[:100]}...")
+        logger.debug(f"Timestamp: {timestamp}, nonce: {nonce_str}")
         
         return {
             'Authorization': auth_header,
@@ -128,7 +157,7 @@ class SignatureGenerator:
             
             # Return base64 encoded signature
             base64_signature = base64.b64encode(signature).decode('utf-8')
-            logger.debug(f"Generated signature (first 20 chars): {base64_signature[:20]}...")
+            logger.debug(f"Generated signature: {base64_signature[:50]}...")
             return base64_signature
         except Exception as e:
             logger.error(f"Failed to sign data: {str(e)}")
