@@ -69,7 +69,7 @@ class SignatureGenerator:
         """
         # Use current timestamp if not provided
         if timestamp is None:
-            timestamp = int(time.time())
+            timestamp = int(time.time() * 1000)  # Use milliseconds
         
         # Create the data to sign
         data_to_sign = self._create_data_to_sign(http_method, url_path, request_body, timestamp)
@@ -77,11 +77,11 @@ class SignatureGenerator:
         # Sign the data
         signature = self._sign_data(data_to_sign)
         
-        # Format the authorization header according to TAMS specification
-        auth_string = f"{self.app_id}.{timestamp}.{signature}"
+        # Create authorization header - Try bearer token format
+        auth_header = f"Bearer {self.app_id}:{timestamp}:{signature}"
         
         return {
-            'Authorization': auth_string,
+            'Authorization': auth_header,
             'Content-Type': 'application/json'
         }
     
@@ -89,26 +89,26 @@ class SignatureGenerator:
         """Create the string to be signed"""
         http_method = http_method.upper()
         
-        # Ensure the URL path starts with /
-        if not url_path.startswith('/'):
-            url_path = '/' + url_path
+        # The string to sign is HTTP_METHOD + URL_PATH + TIMESTAMP + BODY_MD5
+        parts = [http_method, url_path, str(timestamp)]
         
         # Handle request body
-        content_md5 = ''
         if request_body is not None:
             if isinstance(request_body, dict):
                 # Sort keys for consistency
                 request_body_str = json.dumps(request_body, separators=(',', ':'), sort_keys=True)
             else:
-                request_body_str = request_body
+                request_body_str = str(request_body)
                 
             # Calculate MD5 of the request body
             content_md5 = hashlib.md5(request_body_str.encode('utf-8')).hexdigest()
+            parts.append(content_md5)
+        else:
+            parts.append("")  # Empty string for no body
         
-        # Format the string to sign
-        # The format is: METHOD\nPATH\nTIMESTAMP\nMD5
-        string_to_sign = f"{http_method}\n{url_path}\n{timestamp}\n{content_md5}"
-        logger.debug(f"String to sign: {repr(string_to_sign)}")
+        # Join with & character
+        string_to_sign = "&".join(parts)
+        logger.debug(f"String to sign: {string_to_sign}")
         return string_to_sign.encode('utf-8')
     
     def _sign_data(self, data):
@@ -117,7 +117,7 @@ class SignatureGenerator:
             # Sign the data using RSA with SHA-256
             signature = self.private_key.sign(
                 data,
-                padding.PKCS1v15(),  # Use PKCS1v15 padding as specified by TAMS
+                padding.PKCS1v15(),  # Use PKCS1v15 padding
                 hashes.SHA256()
             )
             
