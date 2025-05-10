@@ -86,11 +86,15 @@ class SignatureGenerator:
         # Sign the data
         signature = self._sign_data(data_to_sign)
         
-        # Return headers with signature
-        # FIXED: Use Bearer format for the Authorization header
+        # Return headers with signature - try different Authorization formats
+        # Based on TAMS documentation, the signature goes in the Authorization header
+        # Try the format: TAMS appId:signature
+        auth_string = f"TAMS {self.app_id}:{signature}"
+        
         return {
-            'Authorization': f'Bearer {signature}',
-            'Content-Type': 'application/json'
+            'Authorization': auth_string,
+            'Content-Type': 'application/json',
+            'X-TAMS-Timestamp': str(timestamp)  # Add timestamp header
         }
     
     def _create_data_to_sign(self, http_method, url_path, request_body, timestamp):
@@ -101,7 +105,7 @@ class SignatureGenerator:
         content_md5 = ''
         if request_body is not None:
             if isinstance(request_body, dict):
-                request_body_str = json.dumps(request_body, separators=(',', ':'))
+                request_body_str = json.dumps(request_body, separators=(',', ':'), sort_keys=True)
             else:
                 request_body_str = request_body
                 
@@ -116,7 +120,7 @@ class SignatureGenerator:
     def _sign_data(self, data):
         """Sign the data with the private key"""
         try:
-            # Sign the data
+            # Sign the data using RSA with SHA-256
             signature = self.private_key.sign(
                 data,
                 padding.PKCS1v15(),
