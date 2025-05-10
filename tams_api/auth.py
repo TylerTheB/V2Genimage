@@ -87,9 +87,11 @@ class SignatureGenerator:
         signature = self._sign_data(data_to_sign)
         
         # Return headers with signature
-        # The correct format is "Sign {app_id}:{timestamp}:{signature}"
+        # IMPORTANT: The Authorization header should just be the signature, not in the format "Sign appid:timestamp:signature"
         return {
-            'Authorization': f'Sign {self.app_id}:{timestamp}:{signature}',
+            'Authorization': signature,
+            'X-API-AppId': self.app_id,
+            'X-API-Timestamp': str(timestamp),
             'Content-Type': 'application/json'
         }
     
